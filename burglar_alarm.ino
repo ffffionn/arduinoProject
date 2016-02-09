@@ -1,3 +1,10 @@
+/*
+ * Alarm functionality with the Arduino.
+ * Authors: Fionn O'Connor    (ID: 112452278)
+ *          Alexey Shapovalov (ID: )
+ *          Ciaran McKenzie   (ID: )
+ */
+
 #include <IRremote.h>
 #include <PinChangeInt.h>
 #include <Time.h>
@@ -16,7 +23,7 @@
 #define D7 12
 
 //Infrared Remote HEX codes
-#define POW 0xFFA25D
+#define POW  0xFFA25D
 #define MODE 0xFF629D
 #define MUTE 0xFFE21D
 #define PREV 0xFF22DD
@@ -189,7 +196,7 @@ void toggleAlarm( boolean toToggle ){
 
 
 /*
- * Start the alarm timer (alarm must be triggered) and wait for password to be entered.
+ * Start the alarm and wait for password to be entered.
  * If password checks out, turn alarm off. Else get more input.
  */
 void validateAlarm(){
@@ -236,7 +243,7 @@ void loop() {
 
 
 
-
+  
 
 
             /**********************************************\
@@ -252,14 +259,18 @@ void handleIR(decode_results button){
   switch( button.value ){
 
  //Manually toggle the alarm off  (DEBUG)
-     case( POW ): toggleAlarm( false );
-                  validated = true;
+     case( POW ): saveSettings();
+                  lcd.clear(); 
+                  lcd.print("Settings saved!");
+                  delay(800);
+                  lcd.clear();
                   break;
 
  //Choose a Zone 1-4 and change it's mode.
      case( MODE ): selectMode( selectZone() );
                    break;
 
+  //Clear the EEPROM memory
      case( MUTE ): clearMemory();
                    break;
 
@@ -267,24 +278,24 @@ void handleIR(decode_results button){
     case( MINUS ):  readLog();
                     break;
 
- //Toggle LED on/off
-     case( PLUS ): digitalWrite( LED_PIN, !digitalRead(LED_PIN) );
+ //show zone Stats on lcd for a given zone
+     case( PLUS ): showZoneStats( selectZone() );
                    break;
 
- // Sound the buzzer for a second.
+ // Activte/deactivate a zone
      case( PLAY ): toggleZone( selectZone() );
                    break;
 
  // Set the Date and Time;
-     case( PREV ): setDateTime();
+    case( PREV ): setDateTime();
                    break;
 
 
  //Change the user password. Previous password must be entered first.
-     case( NEXT ): if( changePassword() ){
+    case( NEXT ): if( changePassword() ){
                       lcd.clear();
                       lcd.print( F("Password changed!") );
-                      lcd.setCursor(1, 1);
+                      lcd.setCursor(0, 1);
                       lcd.print("-->");
                       lcd.print(USER_PASS);
                       delay(1500);
@@ -294,10 +305,18 @@ void handleIR(decode_results button){
 
                    
   //Pick a zone and check which mode it's running
-     case( EQ ):  showZoneStats( selectZone() );
+    case( EQ ):  changeSettings( selectZone() );
                   break;
-          
 
+  //Load user settings from EEPROM
+    case( RET ): loadSettings();
+                   lcd.clear();
+                   lcd.print("Settings loaded");
+                   delay(800);
+                   lcd.clear();
+                   break;
+          
+  //Pick zone to show zone info (on Serial)
      case( ZERO ): zoneInfo(selectZone());
                     break;
                    
@@ -309,60 +328,45 @@ void handleIR(decode_results button){
                     break;
      case( FOUR ): showZoneStats( &zoneArray[3] );
                    break;
-     case( FIVE ): break;
-     case( SIX ): toggleZone( selectZone() );
-                  break;
-     case( SEVEN ): saveSettings();
-                    lcd.clear(); 
-                    lcd.print("Settings saved!");
-                    delay(800);
-                    lcd.clear();
-                    break;
-     case( EIGHT ): loadSettings();
-                    lcd.clear();
-                    lcd.print("Settings loaded");
-                    delay(800);
-                    lcd.clear();
-                    break;
-     case( NINE ): 
-                  break;
-     case( HUNDRED ): 
-                      break;
-     case( RET ): changeSettings( selectZone() );
-                  break;
-                  
-  }
-     
+
+     default: break;
+  } 
 }
 
+/*
+ * Print all zone info for a given zone.
+ */
 void zoneInfo( Zone *zone){
-           Zone z = *(zone);
-           Serial.print("**** ZONE ");
-           Serial.println( z.zoneNumber );
-           Serial.print("Mode: ");
-           Serial.println( z.mode );
-                    
-           Serial.print("Pin: ");
-           Serial.println( z.pin );
-                
-           Serial.print("Active: ");
-           Serial.println( z.isActive ? "Yes" : "No" );
-                
-           Serial.print("Entry/Exit Timer:");
-           Serial.println( z.settings.entryExitTime );
-                    
-           Serial.print("Digital Signal Type:");
-           Serial.println( z.settings.digitalSignalType );
-                    
-                    Serial.print("Analogue Threshold: ");
-                    Serial.println( z.settings.threshold );
-                    Serial.println("*****");
+  Zone z = *(zone);
+  Serial.print( F("**** ZONE ") );
+  Serial.println( z.zoneNumber );
+  Serial.print( F("Mode: ") );
+  Serial.println( z.mode );
+          
+  Serial.print("Pin: ");
+  Serial.println( z.pin );
+      
+  Serial.print( F("Active: ") );
+  Serial.println( z.isActive ? "Yes" : "No" );
+      
+  Serial.print( F("Entry/Exit Timer:") );
+  Serial.println( z.settings.entryExitTime );
+          
+  Serial.print( F("Digital Signal Type:")  );
+  Serial.println( z.settings.digitalSignalType );
+          
+  Serial.print( F("Analogue Threshold: ") );
+  Serial.println( z.settings.threshold );
+  Serial.println("*****");
 }
 
+
+/*
+ * Change the setting for the mode a zone is in
+ */
 void changeSettings( Zone *z ){
 
   lcd.clear();
-
   int input;
 
   switch( z->mode ){
@@ -396,6 +400,10 @@ void changeSettings( Zone *z ){
   lcd.clear();
 }
 
+
+/*
+ * Returns the setting value for a zone depending on the mode
+ */ 
 int settingForMode( Zone *ptr ){
   switch( z->mode ){
     case( ENTRYEXIT ):  return z->settings.entryExitTime;
@@ -407,6 +415,9 @@ int settingForMode( Zone *ptr ){
   }
 }
 
+/*
+ * Toggle a zone from active to unactive or vica-versa
+ */
 void toggleZone( Zone *z ){
   Serial.print(z->zoneNumber);
   if( z->isActive ){
@@ -420,6 +431,10 @@ void toggleZone( Zone *z ){
   }
 }
 
+
+/*
+ * Show info about the zone on the lcd
+ */
 void showZoneStats( Zone *z ){
   lcd.clear();
   lcd.print("Zone ");
@@ -495,11 +510,11 @@ int getIntWithLength( int intLength ){
     
     if( irrecv.decode(&results) ){
       nextNum = getNumericInput(results);
-      if( nextNum && nextNum != -1){     //number inputted is a digit and not -1
+      if( nextNum && nextNum != -1){     //number inputted is a digit and not -1(0)
         input = concatInt(input, nextNum);
         lcd.print(nextNum);
         numsEntered++;
-      }else if( nextNum && nextNum == -1){   //-1 acts as zero
+      }else if( nextNum && nextNum == -1){   //number inputted is 0
         input = concatInt(input, nextNum); //concat -1 multiplies by 10 
         numsEntered++;
         lcd.print( 0 );
@@ -509,8 +524,6 @@ int getIntWithLength( int intLength ){
     
   }
 
-  Serial.print(input);
-  Serial.println( " entered");
   lcd.noCursor();  //stop cursor blink
   return input;
 }
@@ -522,7 +535,6 @@ int getIntWithLength( int intLength ){
  */
 int concatInt(int x, int y) {
     if( y == 0 ){
-      Serial.println("ZERO cc");
       return x * 10;
     }else if( y == -1){
       return x * 10; 
@@ -532,8 +544,6 @@ int concatInt(int x, int y) {
           pow *= 10;
       return x * pow + y;   
     }
-
-    //NEED TO IMPLEMENT '0' BEING COUNTED IN THE NUMBER
 }
 
 
@@ -598,33 +608,10 @@ void printDate(){
   lcd.print( year() );
 }
 
-
-// NOT NEEDED
-void getCurrentTime() {
-  lcd.clear();
-  lcd.print( F("Getting time") );
-  delay(400);
-  lcd.print(".");
-  delay(400);
-  lcd.print(".");
-  delay(400);
-  lcd.print(".");
-  delay(400);
-  lcd.clear();
-  
-  int hours, minutes, seconds;   
-
-  time_t t = now();
-  //Serial.println( now() );
-  //setTime( hour(t), minute(t), second(t), day(t), month(t), year(t) );
-  setTime(11, 10, 00, 23, 11, 2015);
-}
-
-
 /*
  * Manually set the date and time.
  */
-void setDateTime(){                //bit too long
+void setDateTime(){          //bit too long
   lcd.clear();
   lcd.print( F("Enter the date") );
   lcd.setCursor(0,1);
@@ -649,7 +636,6 @@ void setDateTime(){                //bit too long
   lcd.setCursor(6, 1);
   
   delay(1000);
-
 
 //USER SETS TIME
   lcd.clear();
@@ -677,19 +663,7 @@ void setDateTime(){                //bit too long
     secondTime = getIntWithLength(2);      
   }while( secondTime >= 60 );
 
-  Serial.print( hourTime );
-  Serial.print(":");
-  Serial.print( minuteTime);
-  Serial.print(":");
-  Serial.println( secondTime);
-  Serial.print( dayDate);
-  Serial.print("/");
-  Serial.print(monthDate);
-  Serial.print("/");
-  Serial.println(yearDate);
-
   setTime( hourTime, minuteTime, secondTime, dayDate, monthDate, yearDate );
-  //setTime( hour(), minute(), second(), dayDate, monthDate, yearDate);
   lcd.clear();
 }
 
@@ -793,7 +767,7 @@ void enableInterrupt( Zone *z ){
             break;
       case(CONTINUOUS):
             Serial.println("Continuos interrupt active.");
-            PCintPort::attachInterrupt( z->pin, setAlarmBit, CHANGE );
+            PCintPort::attachInterrupt( z->pin, setAlarmBit, FALLING );
             break;
       default: break;
     }
@@ -876,8 +850,6 @@ void setOffAlarm( Zone *zone ) {
 
   validated = false;
   logEvent( zone->zoneNumber );
-  lcd.clear();
-  lcd.print( F("User password:") );
 
   if( zone->mode == ENTRYEXIT ){
     seconds = zone->settings.entryExitTime;
@@ -901,6 +873,9 @@ void setOffAlarm( Zone *zone ) {
  */
 void beginEntryExitAlarm(){
   TIMSK1 |= (1 << OCIE1A);  //Turn timer interrupt on.
+
+  lcd.clear();
+  lcd.print( F("Enter password:") );
   
   while( !validated && seconds > 0 ){
         lcd.setCursor(0,1);
@@ -910,6 +885,9 @@ void beginEntryExitAlarm(){
   }
   if(!validated){
     toggleAlarm( true );
+    validateAlarm();
+  }else{
+    toggleAlarm( false );
   }
 
   lcd.clear();
